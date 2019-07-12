@@ -169,7 +169,7 @@ class GamePlayer:
                 tot_reward_list.append(ave_reward)
                 reward_list = []
                 #alpha = alpha0 * (total_episodes - episode)/total_episodes
-                print('Episode {} Average Reward: {}, alpha: {}, e: {}, len(Q) {}'.format(episode+1, ave_reward, alpha, epsilon, len(self.qtable)))
+                print('Episode {} Average Reward: {}, alpha: {}, e: {}, len(Q1, Q2) ({}, {})'.format(episode+1, ave_reward, alpha, epsilon, len(Q1), len(Q2)))
         self.qtable = Q1
         self.Q2 = Q2
         return tot_reward_list
