@@ -173,3 +173,20 @@ class GamePlayer:
         self.qtable = Q1
         self.Q2 = Q2
         return tot_reward_list
+
+def visualize_computer_playing(nb_episodes, trained_game, isDoubleTrained = False):
+    for episode in range(nb_episodes):
+        state = trained_game.start_game(True)
+        print("****************************************************")
+        print("EPISODE ", episode)
+        done = False
+        tot_reward = 0
+        while done is False:
+            if isDoubleTrained:
+                new_state, reward, done, info = trained_game.double_trained_computer_play_step(state)
+            else:
+                new_state, reward, done, info = trained_game.computer_play_step(state)
+            state = new_state
+            tot_reward += reward
+        print("Reward:", tot_reward)
+    trained_game.end_game()
