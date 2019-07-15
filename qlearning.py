@@ -86,7 +86,6 @@ class GamePlayer:
         # Exploration parameters
         alpha0 = alpha
         
-        has_won = False
         reward_list = []
         tot_reward_list = []
         # 2 For life or until learning is stopped
@@ -131,7 +130,6 @@ class GamePlayer:
         Q1 = {}
         Q2 = {}
         
-        has_won = False
         reward_list = []
         tot_reward_list = []
         # 2 For life or until learning is stopped
