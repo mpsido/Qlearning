@@ -2,6 +2,11 @@ import random
 from math import log10, floor
 import numpy as np
 
+# Keras DQN
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.optimizers import Adam
+
 def round_to(x, sig_figs):
     if x == 0.0:
         return 0.0
@@ -11,7 +16,7 @@ def round_to(x, sig_figs):
 
 class GamePlayer:
 
-    def __init__(self, env, state_function):
+    def __init__(self, env, state_function=lambda x: x):
         self.env = env
         self.state_function = state_function
         self.qtable = {}
@@ -247,6 +252,78 @@ class GamePlayer:
         self.qtable = Q1
         self.Q2 = Q2
         return tot_reward_list
+
+    def keras_dqn(self, N, total_episodes, nb_layers=2, layers_size=[24, 24], gamma=0.9, epsilon=0.2, alpha=0.001, reward_when_done=None, logEvery=None):
+        state_size = self.env.observation_space.shape[0]
+        action_size = self.env.action_space.n
+        if logEvery is None:
+            logEvery = N*2
+        if int(nb_layers) < 1 or len(layers_size) != nb_layers:
+            raise RangeError(nb_layers, len(layers_size))
+
+        # Creating the model
+        model = Sequential()
+        for i in range(nb_layers):
+            model.add(Dense(layers_size[i], input_dim=state_size, activation='relu'))
+        model.add(Dense(action_size, activation='linear'))
+        model.compile(loss='mse', optimizer=Adam(lr=alpha))
+
+        reward_list = []
+        tot_reward_list = []
+        nstep = 0
+        Y = []
+        S = []
+        for episode in range(total_episodes):
+            state = self.env.reset()
+            done = False
+            tot_reward = 0
+            while done is False:
+                if nstep == N:
+                    S = np.stack(S, axis=0).reshape(N, state_size)
+                    Y = np.stack(Y, axis=0)
+                    model.fit(S, Y, epochs=1, verbose=0)
+                    nstep = 0
+                    Y = []
+                    S = []
+
+                state = np.array(state).reshape(1, state_size)
+                S.append(state)
+                Y.append(model.predict(state)[0])
+                if np.random.rand(1) < epsilon:
+                    action = self.env.action_space.sample()
+                else:
+                    action = np.argmax(Y[nstep])
+
+                next_state, reward, done, _ = self.env.step(action)
+                next_state = np.array(next_state).reshape(1, state_size)
+                if done:
+                    if reward_when_done is not None:
+                        Y[nstep][action] = reward_when_done
+                    else:
+                        Y[nstep][action] = reward
+                else:
+                    Qnext = model.predict(next_state)[0]
+                    Y[nstep][action] = reward + gamma * np.max(Qnext)
+
+                state = next_state
+                tot_reward += reward 
+                nstep += 1
+                reward_list.append(tot_reward)
+
+            if logEvery > 0 and (episode+1) % logEvery == 0:
+                ave_reward = np.mean(reward_list)
+                tot_reward_list.append(ave_reward)
+                reward_list = []
+                print('Episode {} Average Reward: {}, alpha: {}, e: {}'.format(episode+1, ave_reward, alpha, epsilon))
+
+        self.model = model
+        print("Total reward average:", np.mean(tot_reward_list))
+
+    def keras_trained_action(self, state):
+        if self.model is None:
+            raise ValueError("No model")
+        state_size = self.env.observation_space.shape[0]
+        return np.argmax(self.model.predict(np.array(state).reshape(1, state_size))[0])
 
 def visualize_computer_playing(nb_episodes, env, action_function):
     with env:
