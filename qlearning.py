@@ -10,6 +10,12 @@ from keras.optimizers import Adam
 # Tensorflow DQN
 import tensorflow as tf
 
+def random_argmax(vector):
+    """ Argmax that chooses randomly among eligible maximum indices. """
+    m = np.amax(vector)
+    indices = np.nonzero(vector == m)[0]
+    return np.random.choice(indices)
+
 def round_to(x, sig_figs):
     if x == 0.0:
         return 0.0
@@ -48,7 +54,7 @@ class GamePlayer:
 
         ## If this number > greater than epsilon --> exploitation (taking the biggest Q value for this state)
         if exp_exp_tradeoff > epsilon:
-            action = np.argmax(self.Q(state, self.qtable))
+            action = random_argmax(self.Q(state, self.qtable))
         # Else doing a random choice --> exploration
         else:
             action = self.env.action_space.sample()
@@ -62,7 +68,7 @@ class GamePlayer:
         ## If this number > greater than epsilon --> exploitation (taking the biggest Q value for this state)
         if exp_exp_tradeoff > epsilon:
             Q = [x + y for x, y in zip(self.Q(state, Q1), self.Q(state, Q2))]
-            action = np.argmax(Q)
+            action = random_argmax(Q)
         # Else doing a random choice --> exploration
         else:
             action = self.env.action_space.sample()
@@ -75,11 +81,11 @@ class GamePlayer:
         return state
 
     def q_trained_action(self, state):
-        return np.argmax(self.Q(state, self.qtable))
+        return random_argmax(self.Q(state, self.qtable))
 
     def double_trained_action(self, state):
         Q = [x + y for x, y in zip(self.Q(state, self.qtable), self.Q(state, self.Q2))]
-        return np.argmax(Q)
+        return random_argmax(Q)
         
     def play_game_step(self, action, render = True):
         new_state, reward, done, info = self.env.step(action)
@@ -162,9 +168,9 @@ class GamePlayer:
 
                 tradeoff = random.uniform(0, 1)
                 if tradeoff > 0.5:
-                    self.Q(state, Q1)[action] += alpha * (reward  + gamma * self.Q(new_state, Q2)[np.argmax(self.Q(state, Q1))] - self.Q(state, Q1)[action])
+                    self.Q(state, Q1)[action] += alpha * (reward  + gamma * self.Q(new_state, Q2)[random_argmax(self.Q(state, Q1))] - self.Q(state, Q1)[action])
                 else:
-                    self.Q(state, Q2)[action] += alpha * (reward  + gamma * self.Q(new_state, Q1)[np.argmax(self.Q(state, Q2))] - self.Q(state, Q2)[action])
+                    self.Q(state, Q2)[action] += alpha * (reward  + gamma * self.Q(new_state, Q1)[random_argmax(self.Q(state, Q2))] - self.Q(state, Q2)[action])
 
                 # Our new state is state
                 state = new_state
@@ -230,8 +236,9 @@ class GamePlayer:
                     tot_reward[(nstep)%2] += reward
                 else:
                     self.Q(previous_state, Q[(nstep+1)%2])[previous_action] += alpha * (reward  - gamma * max(self.Q(new_state, Q[(nstep)%2])) - self.Q(state, Q[(nstep+1)%2])[action])
-                    self.Q(state, Q[(nstep)%2])[action] += alpha * (reward  - gamma * max(self.Q(new_state, Q[(nstep+1)%2])) - self.Q(state, Q[(nstep)%2])[action])
+                    #self.Q(state, Q[(nstep)%2])[action] += alpha * (reward  - gamma * max(self.Q(new_state, Q[(nstep+1)%2])) - self.Q(state, Q[(nstep)%2])[action])
                     tot_reward[(nstep)%2] += reward
+                    tot_reward[(nstep+1)%2] -= reward
 
                 if new_state == state or previous_state == new_state:
                     raise IndexError("What is going on ?", new_state, state, previous_state, action, done)
@@ -300,7 +307,7 @@ class GamePlayer:
                 if np.random.rand(1) < epsilon:
                     action = self.env.action_space.sample()
                 else:
-                    action = np.argmax(Y[nstep])
+                    action = random_argmax(Y[nstep])
 
                 next_state, reward, done, _ = self.env.step(action)
                 next_state = np.array(next_state).reshape(1, state_size)
@@ -331,7 +338,7 @@ class GamePlayer:
         if self.model is None:
             raise ValueError("No model")
         state_size = self.env.observation_space.shape[0]
-        return np.argmax(self.model.predict(np.array(state).reshape(1, state_size))[0])
+        return random_argmax(self.model.predict(np.array(state).reshape(1, state_size))[0])
 
     def tf_dqn(self, N, total_episodes, layers_size=[24, 24], gamma=0.9, epsilon=0.2, alpha=0.001, reward_when_done=None, logEvery=None):
         state_size = self.env.observation_space.shape[0]
@@ -394,7 +401,7 @@ class GamePlayer:
                     if np.random.rand(1) < epsilon:
                         action = self.env.action_space.sample()
                     else:
-                        action = np.argmax(Y[nstep])
+                        action = random_argmax(Y[nstep])
 
                     next_state, reward, done, _ = self.env.step(action)
                     next_state = np.array(next_state).reshape(1, state_size)
@@ -433,7 +440,7 @@ class GamePlayer:
         init = tf.global_variables_initializer()
         with tf.Session() as sess:
             sess.run(init)
-            return np.argmax(sess.run([self.model], feed_dict={inputs: [state[0]]})[0][0])
+            return random_argmax(sess.run([self.model], feed_dict={inputs: [state[0]]})[0][0])
 
 def visualize_computer_playing(nb_episodes, env, action_function):
     with env:
