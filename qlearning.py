@@ -30,12 +30,12 @@ class GamePlayer:
         self.state_function = state_function
         self.qtable = {}
         self.max_epsilon = 0.8             # Exploration probability at start
-        self.min_epsilon = 0.01            # Minimum exploration probability 
+        self.min_epsilon = 0.01            # Minimum exploration probability
         self.randinit = False
-        
+
     def erase_training(self):
         self.qtable = {}
-    
+
     def Q(self, state, qtable):
         s = self.state_function(state)
         if s not in qtable:
@@ -46,7 +46,7 @@ class GamePlayer:
                     init = random.uniform(0, 1)
                 qtable[s].append(init)
         return qtable[s]
-    
+
     def epison_q_action(self, state, epsilon):
         # 3. Choose an action a in the current world state (s)
         ## First we randomize a number
@@ -73,7 +73,7 @@ class GamePlayer:
         else:
             action = self.env.action_space.sample()
         return action
-    
+
     def start_game(self, render = False):
         state = self.env.reset()
         if (render):
@@ -86,7 +86,7 @@ class GamePlayer:
     def double_trained_action(self, state):
         Q = [x + y for x, y in zip(self.Q(state, self.qtable), self.Q(state, self.Q2))]
         return random_argmax(Q)
-        
+
     def play_game_step(self, action, render = True):
         new_state, reward, done, info = self.env.step(action)
         if (render):
@@ -97,13 +97,13 @@ class GamePlayer:
         self.end_game()
 
     def end_game(self):
-        self.env.close() 
-        
-    def train(self, total_episodes, alpha, gamma, epsilon, decay_rate, logEvery = 100):
+        self.env.close()
+
+    def train(self, total_episodes, alpha, gamma, epsilon, decay_rate, logEvery=100):
         self.start_game(False)
         # Exploration parameters
         alpha0 = alpha
-        
+
         reward_list = []
         tot_reward_list = []
         # 2 For life or until learning is stopped
@@ -122,7 +122,7 @@ class GamePlayer:
                 # dirty ugly cheat witchcraft that does not even work
                 # reward += abs(new_state[0])+10.0*abs(new_state[1])
 
-                # Update Q(s,a):= Q(s,a) + lr [R(s,a) + gamma * max Q(s',a') - Q(s,a)]
+                # Update Q(s, a):= Q(s, a) + lr [R(s, a) + gamma * max Q(s', a') - Q(s, a)]
                 self.Q(state, self.qtable)[action] += alpha * (reward  + gamma * max(self.Q(new_state, self.qtable)) - self.Q(state, self.qtable)[action])
 
                 # Our new state is state
@@ -131,7 +131,7 @@ class GamePlayer:
             reward_list.append(tot_reward)
             if decay_rate != 0.0:
                 epsilon = self.min_epsilon + (self.max_epsilon - self.min_epsilon) * np.exp(-decay_rate*episode)
-            
+
             if logEvery > 0 and (episode+1) % logEvery == 0:
                 ave_reward = np.mean(reward_list)
                 tot_reward_list.append(ave_reward)
@@ -140,14 +140,13 @@ class GamePlayer:
                 print('Episode {} Average Reward: {}, alpha: {}, e: {}, len(Q) {}'.format(episode+1, ave_reward, alpha, epsilon, len(self.qtable)))
         return tot_reward_list
 
-
-    def double_q_train(self, total_episodes, alpha, gamma, epsilon, decay_rate, logEvery = 100):
+    def double_q_train(self, total_episodes, alpha, gamma, epsilon, decay_rate, logEvery=100):
         self.start_game(False)
         # Exploration parameters
         alpha0 = alpha
         Q1 = {}
         Q2 = {}
-        
+
         reward_list = []
         tot_reward_list = []
         # 2 For life or until learning is stopped
@@ -160,8 +159,8 @@ class GamePlayer:
                 action = self.epison_double_q_action(state, epsilon, Q1, Q2)
                 if action >= self.env.action_space.n:
                     print(action)
-                    print(self.Q(state,Q1))
-                    print(self.Q(state,Q2))
+                    print(self.Q(state, Q1))
+                    print(self.Q(state, Q2))
                     raise IndexError
                 # Take the action (a) and observe the outcome state(s') and reward (r)
                 new_state, reward, done, info = self.play_game_step(action, False)
@@ -178,7 +177,7 @@ class GamePlayer:
             reward_list.append(tot_reward)
             if decay_rate != 0.0:
                 epsilon = self.min_epsilon + (self.max_epsilon - self.min_epsilon) * np.exp(-decay_rate*episode)
-            
+
             if logEvery > 0 and (episode+1) % logEvery == 0:
                 ave_reward = np.mean(reward_list)
                 tot_reward_list.append(ave_reward)
@@ -189,14 +188,14 @@ class GamePlayer:
         self.Q2 = Q2
         return tot_reward_list
 
-    def adversarial_q_train(self, total_episodes, alpha, gamma, epsilon, decay_rate, logEvery = 100):
+    def adversarial_q_train(self, total_episodes, alpha, gamma, epsilon, decay_rate, logEvery=100):
         self.start_game(False)
         # Exploration parameters
         alpha0 = alpha
         Q1 = {}
         Q2 = {}
         Q = (Q1, Q2)
-        
+
         reward_list = []
         tot_reward_list = []
         # 2 For life or until learning is stopped
@@ -225,7 +224,7 @@ class GamePlayer:
                     self.Q(state, Q2)[action] = -2
                     tot_reward[(nstep)%2] -= 2
                     continue
-                
+
                 if done:
                     if previous_state[0][previous_action] != 0 or state[0][action] != 0:
                         raise IndexError("weird", done, action, state, previous_state, previous_action)
@@ -252,7 +251,7 @@ class GamePlayer:
             reward_list.append(tot_reward)
             if decay_rate != 0.0:
                 epsilon = self.min_epsilon + (self.max_epsilon - self.min_epsilon) * np.exp(-decay_rate*episode)
-            
+
             if logEvery > 0 and (episode+1) % logEvery == 0:
                 ave_reward = np.mean(reward_list)
                 tot_reward_list.append(ave_reward)
@@ -321,7 +320,7 @@ class GamePlayer:
                     Y[nstep][action] = reward + gamma * np.max(Qnext)
 
                 state = next_state
-                tot_reward += reward 
+                tot_reward += reward
                 nstep += 1
                 reward_list.append(tot_reward)
 
@@ -354,19 +353,19 @@ class GamePlayer:
             raise RangeError(nb_layers, len(layers_size))
 
         # Creating the model
-        inputs = tf.placeholder(shape=[1,state_size],dtype=tf.float32)
-        training_inputs = tf.placeholder(shape=[N,state_size],dtype=tf.float32)
-        states = tf.placeholder(shape=[N,state_size],dtype=tf.float32)
-        ytarget = tf.placeholder(shape=[N,action_size],dtype=tf.float32)
-        layers = [tf.Variable(tf.random_uniform([state_size, layers_size[0]],0,0.01))]
+        inputs = tf.placeholder(shape=[1, state_size], dtype=tf.float32)
+        training_inputs = tf.placeholder(shape=[N, state_size], dtype=tf.float32)
+        states = tf.placeholder(shape=[N, state_size], dtype=tf.float32)
+        ytarget = tf.placeholder(shape=[N, action_size], dtype=tf.float32)
+        layers = [tf.Variable(tf.random_uniform([state_size, layers_size[0]], 0, 0.01))]
         predict_model = tf.nn.relu(tf.matmul(inputs, layers[0]))
         model = tf.nn.relu(tf.matmul(states, layers[0]))
 
         for i in range(1, nb_layers-2):
-            layers.append(tf.Variable(tf.random_uniform([layers_size[i-1], layers_size[i]],0,0.01)))
+            layers.append(tf.Variable(tf.random_uniform([layers_size[i-1], layers_size[i]], 0, 0.01)))
             model = tf.nn.relu(tf.matmul(model, layers[i]))
             predict_model = tf.nn.relu(tf.matmul(predict_model, layers[i]))
-        layers.append(tf.Variable(tf.random_uniform([layers_size[nb_layers-1], action_size],0,0.01)))
+        layers.append(tf.Variable(tf.random_uniform([layers_size[nb_layers-1], action_size], 0, 0.01)))
         model = tf.matmul(model, layers[nb_layers-1])
         predict_model = tf.matmul(predict_model, layers[nb_layers-1])
 
@@ -415,7 +414,7 @@ class GamePlayer:
                         Y[nstep][action] = reward + gamma * np.max(Qnext)
 
                     state = next_state
-                    tot_reward += reward 
+                    tot_reward += reward
                     nstep += 1
                     reward_list.append(tot_reward)
 
