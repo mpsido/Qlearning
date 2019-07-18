@@ -66,14 +66,12 @@ class GamePlayer:
             self.env.render()
         return state
 
-    def computer_play_step(self, state):
-        action = np.argmax(self.Q(state, self.qtable))
-        return self.play_game_step(action)
+    def q_trained_action(self, state):
+        return np.argmax(self.Q(state, self.qtable))
 
-    def double_trained_computer_play_step(self, state):
+    def double_trained_action(self, state):
         Q = [x + y for x, y in zip(self.Q(state, self.qtable), self.Q(state, self.Q2))]
-        action = np.argmax(Q)
-        return self.play_game_step(action)
+        return np.argmax(Q)
         
     def play_game_step(self, action, render = True):
         new_state, reward, done, info = self.env.step(action)
@@ -81,9 +79,11 @@ class GamePlayer:
             self.env.render()
         return new_state, reward, done, info
 
+    def close(self):
+        self.end_game()
+
     def end_game(self):
-        self.env.close()
-        
+        self.env.close() 
         
     def train(self, total_episodes, alpha, gamma, epsilon, decay_rate, logEvery = 100):
         self.start_game(False)
@@ -248,19 +248,17 @@ class GamePlayer:
         self.Q2 = Q2
         return tot_reward_list
 
-def visualize_computer_playing(nb_episodes, trained_game, isDoubleTrained = False):
-    for episode in range(nb_episodes):
-        state = trained_game.start_game(True)
-        print("****************************************************")
-        print("EPISODE ", episode)
-        done = False
-        tot_reward = 0
-        while done is False:
-            if isDoubleTrained:
-                new_state, reward, done, info = trained_game.double_trained_computer_play_step(state)
-            else:
-                new_state, reward, done, info = trained_game.computer_play_step(state)
-            state = new_state
-            tot_reward += reward
-        print("Reward:", tot_reward)
-    trained_game.end_game()
+def visualize_computer_playing(nb_episodes, env, action_function):
+    with env:
+        for episode in range(nb_episodes):
+            state = env.reset()
+            env.render()
+            print("****************************************************")
+            print("EPISODE ", episode)
+            done = False
+            tot_reward = 0
+            while done is False:
+                new_state, reward, done, info = env.step(action_function(state))
+                state = new_state
+                tot_reward += reward
+            print("Reward:", tot_reward)
