@@ -144,8 +144,12 @@ class GamePlayer:
         self.start_game(False)
         # Exploration parameters
         alpha0 = alpha
-        Q1 = {}
-        Q2 = {}
+        if len(self.qtable) == 0:
+            Q1 = {}
+            Q2 = {}
+        else:
+            Q1 = self.qtable
+            Q2 = self.Q2
 
         reward_list = []
         tot_reward_list = []
@@ -271,7 +275,8 @@ class GamePlayer:
                 print('Episode {} Average Reward: {}, alpha: {}, e: {}, len(Q) {}'.format(episode+1, ave_reward, alpha, epsilon, len(self.qtable)))
         return tot_reward_list
 
-    def keras_dqn(self, N, total_episodes, layers_size=[24, 24], gamma=0.9, epsilon=0.2, alpha=0.001, reward_when_done=None, logEvery=None):
+    def keras_dqn(self, N, total_episodes, layers_size=[24, 24], gamma=0.9, epsilon=0.2, 
+        decay_rate=0.0, alpha=0.001, reward_when_done=None, logEvery=None):
         state_size = self.env.observation_space.shape[0]
         action_size = self.env.action_space.n
         if logEvery is None:
@@ -285,11 +290,12 @@ class GamePlayer:
             raise RangeError(nb_layers, len(layers_size))
 
         # Creating the model
-        model = Sequential()
-        for i in range(nb_layers):
-            model.add(Dense(layers_size[i], input_dim=state_size, activation='relu'))
-        model.add(Dense(action_size, activation='linear'))
-        model.compile(loss='mse', optimizer=Adam(lr=alpha))
+        if not hasattr(self, 'model'):
+            self.model = Sequential()
+            for i in range(nb_layers):
+                self.model.add(Dense(layers_size[i], input_dim=state_size, activation='relu'))
+            self.model.add(Dense(action_size, activation='linear'))
+            self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
 
         reward_list = []
         tot_reward_list = []
@@ -304,14 +310,14 @@ class GamePlayer:
                 if nstep == N:
                     S = np.stack(S, axis=0).reshape(N, state_size)
                     Y = np.stack(Y, axis=0)
-                    model.fit(S, Y, epochs=1, verbose=0)
+                    self.model.fit(S, Y, epochs=1, verbose=0)
                     nstep = 0
                     Y = []
                     S = []
 
                 state = np.array(state).reshape(1, state_size)
                 S.append(state)
-                Y.append(model.predict(state)[0])
+                Y.append(self.model.predict(state)[0])
                 if np.random.rand(1) < epsilon:
                     action = self.env.action_space.sample()
                 else:
@@ -325,21 +331,22 @@ class GamePlayer:
                     else:
                         Y[nstep][action] = reward
                 else:
-                    Qnext = model.predict(next_state)[0]
+                    Qnext = self.model.predict(next_state)[0]
                     Y[nstep][action] = reward + gamma * np.max(Qnext)
 
                 state = next_state
                 tot_reward += reward
                 nstep += 1
-                reward_list.append(tot_reward)
+            reward_list.append(tot_reward)
 
             if logEvery > 0 and (episode+1) % logEvery == 0:
                 ave_reward = np.mean(reward_list)
                 tot_reward_list.append(ave_reward)
                 reward_list = []
                 print('Episode {} Average Reward: {}, alpha: {}, e: {}'.format(episode+1, ave_reward, alpha, epsilon))
+            if decay_rate != 0.0:
+                epsilon = self.min_epsilon + (self.max_epsilon - self.min_epsilon) * np.exp(-decay_rate*episode)
 
-        self.model = model
         print("Total reward average:", np.mean(tot_reward_list))
 
     def keras_trained_action(self, state):
@@ -425,7 +432,7 @@ class GamePlayer:
                     state = next_state
                     tot_reward += reward
                     nstep += 1
-                    reward_list.append(tot_reward)
+                reward_list.append(tot_reward)
 
                 if logEvery > 0 and (episode+1) % logEvery == 0:
                     ave_reward = np.mean(reward_list)
