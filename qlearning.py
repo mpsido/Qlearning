@@ -188,14 +188,12 @@ class GamePlayer:
         self.Q2 = Q2
         return tot_reward_list
 
-    def adversarial_q_train(self, total_episodes, alpha, gamma, epsilon, decay_rate, logEvery=100):
+    def adversarial_q_train(self, total_episodes, alpha, gamma, epsilon, decay_rate, logEvery=100, adversary_function=None):
         self.start_game(False)
         # Exploration parameters
         alpha0 = alpha
-        Q1 = {}
-        Q2 = {}
-        Q = (Q1, Q2)
-
+        if self.qtable is None:
+            self.qtable = {}
         reward_list = []
         tot_reward_list = []
         # 2 For life or until learning is stopped
@@ -207,12 +205,16 @@ class GamePlayer:
             previous_state = state
             previous_action = -1
             done = False
-            tot_reward_1 = 0
-            tot_reward_2 = 0
-            tot_reward = [tot_reward_1, tot_reward_2]
+            tot_reward = [0, 0]
             nstep = 0
             while done is False:
-                action = self.epison_double_q_action(state, epsilon, Q1, Q2)
+                if adversary_function is None:
+                    action = self.epison_q_action(state, epsilon)
+                else:
+                    if (episode+nstep+1)%2 == 1:
+                        action = adversary_function(state)
+                    else:
+                        action = self.epison_q_action(state, epsilon)
                 if action >= self.env.action_space.n:
                     raise IndexError
                 try:
@@ -220,24 +222,33 @@ class GamePlayer:
                     new_state, reward, done, info = self.env.play_symbol(action, (nstep%2)+1)
                     new_state = self.state_function(new_state)
                 except:
-                    self.Q(state, Q1)[action] = -2
-                    self.Q(state, Q2)[action] = -2
-                    tot_reward[(nstep)%2] -= 2
+                    self.Q(state, self.qtable)[action] = -2
+                    tot_reward[(episode+nstep)%2] -= 2
+                    tot_reward[(episode+nstep+1)%2] -= 2
+                    if (episode+nstep+1)%2 == 1:
+                        tot_reward[1] -2
+                    else:
+                        tot_reward[0] += -2
                     continue
 
                 if done:
-                    if previous_state[0][previous_action] != 0 or state[0][action] != 0:
-                        raise IndexError("weird", done, action, state, previous_state, previous_action)
-                    #print("Adversary winning reward:", reward, new_state, state, previous_state, previous_action, action)
-                    self.Q(previous_state, Q[(nstep+1)%2])[previous_action] = -reward
-                    self.Q(state, Q[(nstep)%2])[action] = reward
-                    tot_reward[(nstep+1)%2] += -reward
-                    tot_reward[(nstep)%2] += reward
+                    if (episode+nstep+1)%2 == 1:
+                        tot_reward[0] -= reward
+                        tot_reward[1] += reward
+                    else:
+                        tot_reward[0] += reward
+                        tot_reward[1] -= reward
+                    self.Q(previous_state, self.qtable)[previous_action] = -reward
+                    self.Q(state, self.qtable)[action] = reward
                 else:
-                    self.Q(previous_state, Q[(nstep+1)%2])[previous_action] += alpha * (reward  - gamma * max(self.Q(new_state, Q[(nstep)%2])) - self.Q(state, Q[(nstep+1)%2])[action])
-                    #self.Q(state, Q[(nstep)%2])[action] += alpha * (reward  - gamma * max(self.Q(new_state, Q[(nstep+1)%2])) - self.Q(state, Q[(nstep)%2])[action])
-                    tot_reward[(nstep)%2] += reward
-                    tot_reward[(nstep+1)%2] -= reward
+                    self.Q(previous_state, self.qtable)[previous_action] += alpha * (-reward  - gamma * max(self.Q(new_state, self.qtable)) - self.Q(state, self.qtable)[action])
+                    self.Q(state, self.qtable)[action] += alpha * (reward  - gamma * max(self.Q(new_state, self.qtable)) - self.Q(state, self.qtable)[action])
+                    if (episode+nstep+1)%2 == 1:
+                        tot_reward[0] -= reward
+                        tot_reward[1] += reward
+                    else:
+                        tot_reward[0] += reward
+                        tot_reward[1] -= reward
 
                 if new_state == state or previous_state == new_state:
                     raise IndexError("What is going on ?", new_state, state, previous_state, action, done)
@@ -248,7 +259,7 @@ class GamePlayer:
                 previous_state = state
                 state = new_state
                 previous_action = action
-            reward_list.append(tot_reward)
+            reward_list.append(tot_reward[0])
             if decay_rate != 0.0:
                 epsilon = self.min_epsilon + (self.max_epsilon - self.min_epsilon) * np.exp(-decay_rate*episode)
 
@@ -258,8 +269,6 @@ class GamePlayer:
                 reward_list = []
                 #alpha = alpha0 * (total_episodes - episode)/total_episodes
                 print('Episode {} Average Reward: {}, alpha: {}, e: {}, len(Q) {}'.format(episode+1, ave_reward, alpha, epsilon, len(self.qtable)))
-        self.qtable = Q1
-        self.Q2 = Q2
         return tot_reward_list
 
     def keras_dqn(self, N, total_episodes, layers_size=[24, 24], gamma=0.9, epsilon=0.2, alpha=0.001, reward_when_done=None, logEvery=None):
