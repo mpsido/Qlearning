@@ -6,6 +6,7 @@ import numpy as np
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.optimizers import Adam
+import keras.backend as K
 
 # Tensorflow DQN
 import tensorflow as tf
@@ -368,9 +369,9 @@ class GamePlayer:
                 ave_reward = np.mean(reward_list)
                 tot_reward_list.append(ave_reward)
                 reward_list = []
-                print('Episode {} Average Reward: {}, alpha: {}, e: {}'.format(episode+1, ave_reward, alpha, epsilon))
+                print('Episode {} Average Reward: {}, alpha: {}, e: {}'.format(episode+1, ave_reward, K.eval(self.model.optimizer.lr), epsilon))
             if decay_rate != 0.0:
-                epsilon = self.min_epsilon + (self.max_epsilon - self.min_epsilon) * np.exp(-decay_rate*episode)
+                epsilon = max(self.min_epsilon, epsilon*decay_rate)
 
         print("Total reward average:", np.mean(tot_reward_list))
 
