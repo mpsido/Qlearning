@@ -10,6 +10,9 @@ from keras.optimizers import Adam
 # Tensorflow DQN
 import tensorflow as tf
 
+# Memory
+from collections import deque
+
 def random_argmax(vector):
     """ Argmax that chooses randomly among eligible maximum indices. """
     m = np.amax(vector)
@@ -22,6 +25,26 @@ def round_to(x, sig_figs):
     if x < 0.0:
         return round(x, -int(floor(log10(abs(-x))) - (sig_figs - 1)))
     return round(x, -int(floor(log10(abs(x))) - (sig_figs - 1)))
+
+class Memory():
+    def __init__(self, max_size):
+        self.len = 0
+        self.buffer = deque(maxlen=max_size)
+
+    def __len__(self):
+        return min(self.len, len(self.buffer))
+    
+    def add(self, experience):
+        self.len += 1
+        self.buffer.append(experience)
+    
+    def sample(self, batch_size):
+        buffer_size = len(self.buffer)
+        index = np.random.choice(np.arange(buffer_size),
+                                size = batch_size,
+                                replace = False)
+        
+        return [self.buffer[i] for i in index]
 
 class GamePlayer:
 
@@ -274,6 +297,82 @@ class GamePlayer:
                 #alpha = alpha0 * (total_episodes - episode)/total_episodes
                 print('Episode {} Average Reward: {}, alpha: {}, e: {}, len(Q) {}'.format(episode+1, ave_reward, alpha, epsilon, len(self.qtable)))
         return tot_reward_list
+
+    def keras_dqn_replay(self, N, total_episodes, layers_size=[24, 24], gamma=0.9, epsilon=0.2, 
+        decay_rate=0.0, alpha=0.001, reward_when_done=None, logEvery=None):
+        state_size = self.env.observation_space.shape[0]
+        action_size = self.env.action_space.n
+        if logEvery is None:
+            logEvery = N*2
+
+        if logEvery > total_episodes:
+            raise RangeError("logEvery should be lower than total_episodes")
+
+        nb_layers = len(layers_size)
+        if int(nb_layers) < 1:
+            raise RangeError(nb_layers, len(layers_size))
+
+        # Creating the model
+        if not hasattr(self, 'model'):
+            self.model = Sequential()
+            for i in range(nb_layers):
+                self.model.add(Dense(layers_size[i], input_dim=state_size, activation='relu'))
+            self.model.add(Dense(action_size, activation='linear'))
+            self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
+
+        if not hasattr(self, 'memory'):
+            self.memory = Memory(100000)
+
+        reward_list = []
+        tot_reward_list = []
+        nstep = 0
+        for episode in range(total_episodes):
+            state = self.env.reset()
+            done = False
+            tot_reward = 0
+            while done is False:
+                if nstep == N:
+                    Y = []
+                    batch = self.memory.sample(N)
+                    S = np.array([each[0] for each in batch])
+                    for i, (state, action, reward, done, next_state) in enumerate(batch):
+                        Y.append(self.model.predict(state)[0])
+                        next_state = np.array(next_state).reshape(1, state_size)
+                        if done:
+                            if reward_when_done is not None:
+                                Y[i][action] = reward_when_done
+                            else:
+                                Y[i][action] = reward
+                        else:
+                            Qnext = self.model.predict(next_state)[0]
+                            Y[i][action] = reward + gamma * np.max(Qnext)
+                    Y = np.stack(Y, axis=0)
+                    self.model.fit(S.reshape(N, state_size), Y, epochs=1, verbose=0)
+                    nstep = 0
+
+                state = np.array(state).reshape(1, state_size)
+                if np.random.rand(1) < epsilon:
+                    action = self.env.action_space.sample()
+                else:
+                    action = random_argmax(self.model.predict(state)[0])
+
+                next_state, reward, done, _ = self.env.step(action)
+                self.memory.add((state, action, reward, done, next_state))
+                
+                state = next_state
+                tot_reward += reward
+                nstep += 1
+            reward_list.append(tot_reward)
+
+            if logEvery > 0 and (episode+1) % logEvery == 0:
+                ave_reward = np.mean(reward_list)
+                tot_reward_list.append(ave_reward)
+                reward_list = []
+                print('Episode {} Average Reward: {}, alpha: {}, e: {}'.format(episode+1, ave_reward, alpha, epsilon))
+            if decay_rate != 0.0:
+                epsilon = self.min_epsilon + (self.max_epsilon - self.min_epsilon) * np.exp(-decay_rate*episode)
+
+        print("Total reward average:", np.mean(tot_reward_list))
 
     def keras_dqn(self, N, total_episodes, layers_size=[24, 24], gamma=0.9, epsilon=0.2, 
         decay_rate=0.0, alpha=0.001, reward_when_done=None, logEvery=None):
