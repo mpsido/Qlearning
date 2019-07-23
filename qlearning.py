@@ -299,6 +299,57 @@ class GamePlayer:
                 print('Episode {} Average Reward: {}, alpha: {}, e: {}, len(Q) {}'.format(episode+1, ave_reward, alpha, epsilon, len(self.qtable)))
         return tot_reward_list
 
+    def model_train(self, total_episodes, train_function, layers_size=[24, 24], gamma=0.9, alpha=0.001, reward_when_done=None, logEvery=1):
+        state_size = self.env.observation_space.shape[0]
+        action_size = self.env.action_space.n
+        if not hasattr(self, 'memory'):
+            self.memory = Memory(200000)
+        if not hasattr(self, 'model'):
+            print("Creating model")
+            nb_layers = len(layers_size)
+            if int(nb_layers) < 1:
+                raise RangeError(nb_layers, len(layers_size))
+            self.model = Sequential()
+            for i in range(nb_layers):
+                self.model.add(Dense(layers_size[i], input_dim=state_size, activation='relu'))
+            self.model.add(Dense(action_size, activation='linear'))
+            self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
+        tot_reward = 0
+        tot_reward_list = []
+        for episode in range(total_episodes):
+            state = self.env.reset()
+            done = False
+            tot_reward = 0
+            nstep = 0
+            while done is False:
+                action = train_function(state)
+                state = np.array(state).reshape(1, state_size)
+                next_state, reward, done, _ = self.env.step(action)
+                self.memory.add((state, action, reward, done, next_state))
+                state = next_state
+                tot_reward += reward
+                nstep += 1
+            tot_reward_list.append(tot_reward)
+            Y = []
+            batch = self.memory.sample(nstep)
+            S = np.array([each[0] for each in batch])
+            for i, (state, action, reward, done, next_state) in enumerate(batch):
+                Y.append(self.model.predict(state)[0])
+                next_state = np.array(next_state).reshape(1, state_size)
+                if done:
+                    if reward_when_done is not None:
+                        Y[i][action] = reward_when_done
+                    else:
+                        Y[i][action] = reward
+                else:
+                    Qnext = self.model.predict(next_state)[0]
+                    Y[i][action] = reward + gamma * np.max(Qnext)
+            Y = np.stack(Y, axis=0)
+            self.model.fit(S.reshape(nstep, state_size), Y, epochs=1, verbose=0)
+            if logEvery > 0 and (episode+1) % logEvery == 0:
+                print('Episode {} Average Reward: {}, alpha: {}'.format(episode+1, np.mean(tot_reward_list), K.eval(self.model.optimizer.lr)))
+                tot_reward_list = []
+
     def keras_dqn_replay(self, N, total_episodes, layers_size=[24, 24], gamma=0.9, epsilon=0.2, 
         decay_rate=0.0, alpha=0.001, reward_when_done=None, logEvery=None):
         state_size = self.env.observation_space.shape[0]
@@ -315,6 +366,7 @@ class GamePlayer:
 
         # Creating the model
         if not hasattr(self, 'model'):
+            print("Creating model")
             self.model = Sequential()
             for i in range(nb_layers):
                 self.model.add(Dense(layers_size[i], input_dim=state_size, activation='relu'))
