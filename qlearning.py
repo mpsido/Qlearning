@@ -322,7 +322,7 @@ class GamePlayer:
             self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
 
         if not hasattr(self, 'memory'):
-            self.memory = Memory(100000)
+            self.memory = Memory(200000)
 
         reward_list = []
         tot_reward_list = []
@@ -568,6 +568,7 @@ def visualize_computer_playing(nb_episodes, env, action_function):
             tot_reward = 0
             while done is False:
                 new_state, reward, done, info = env.step(action_function(state))
+                env.render()
                 state = new_state
                 tot_reward += reward
             print("Reward:", tot_reward)
