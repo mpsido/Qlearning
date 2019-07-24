@@ -71,32 +71,22 @@ class GamePlayer:
                 qtable[s].append(init)
         return qtable[s]
 
-    def epison_q_action(self, state, epsilon):
-        # 3. Choose an action a in the current world state (s)
-        ## First we randomize a number
-        exp_exp_tradeoff = random.uniform(0, 1)
-
-        ## If this number > greater than epsilon --> exploitation (taking the biggest Q value for this state)
-        if exp_exp_tradeoff > epsilon:
-            action = random_argmax(self.Q(state, self.qtable))
-        # Else doing a random choice --> exploration
+    @staticmethod
+    def epsilon_action(state, env, epsilon, action_function):
+        if np.random.rand(1) < epsilon:
+            action = env.action_space.sample()
         else:
-            action = self.env.action_space.sample()
+            action = action_function(state)
         return action
+
+    def epison_q_action(self, state, epsilon):
+        return GamePlayer.epsilon_action(state, self.env, epsilon, lambda state: random_argmax(self.Q(state, self.qtable)))
 
     def epison_double_q_action(self, state, epsilon, Q1, Q2):
-        # 3. Choose an action a in the current world state (s)
-        ## First we randomize a number
-        exp_exp_tradeoff = random.uniform(0, 1)
-
-        ## If this number > greater than epsilon --> exploitation (taking the biggest Q value for this state)
-        if exp_exp_tradeoff > epsilon:
+        def action_function(self, state):
             Q = [x + y for x, y in zip(self.Q(state, Q1), self.Q(state, Q2))]
-            action = random_argmax(Q)
-        # Else doing a random choice --> exploration
-        else:
-            action = self.env.action_space.sample()
-        return action
+            return random_argmax(Q)
+        return GamePlayer.epsilon_action(state, self.env, epsilon, lambda state: action_function(self, state))
 
     def start_game(self, render = False):
         state = self.env.reset()
@@ -374,6 +364,18 @@ class GamePlayer:
             if logEvery > 0 and (episode+1) % logEvery == 0:
                 print('Episode {} Average Reward: {}, alpha: {}'.format(episode+1, np.mean(tot_reward_list), K.eval(self.model.optimizer.lr)))
                 tot_reward_list = []
+    
+    def dvn_action(self, state):
+        state_size = self.env.observation_space.shape[0]
+        action_size = self.env.action_space.n
+        state = np.array(state).reshape(1, state_size)
+        VValues = []
+        for action in range(action_size):
+            action = np.array(action).reshape(1, 1)
+            vector = np.concatenate((state, action), axis=1)
+            next_state = self.vModel.predict(vector)[0:state_size]
+            VValues.append(max(self.model.predict(next_state)[0]))
+        return random_argmax(VValues)
 
     def keras_dqn_dvn(self, N, total_episodes, layers_size=[32, 32], gamma=0.9, epsilon=0.2,
         decay_rate=0.0, alpha=0.001, reward_when_done=None, logEvery=None):
@@ -413,22 +415,9 @@ class GamePlayer:
         tot_reward_list = []
         nbrecords = 0
 
-        def action_function(self, state):
-            if np.random.rand(1) < epsilon:
-                action = self.env.action_space.sample()
-            else:
-                state = np.array(state).reshape(1, state_size)
-                VValues = []
-                for action in range(action_size):
-                    action = np.array(action).reshape(1, 1)
-                    vector = np.concatenate((state, action), axis=1)
-                    next_state = self.vModel.predict(vector)[0:state_size]
-                    VValues.append(max(self.model.predict(next_state)[0]))
-                action = random_argmax(VValues)
-            return action
-
+        action_function = lambda state: GamePlayer.epsilon_action(state, self.env, epsilon, self.dvn_action)
         for episode in range(total_episodes):
-            tot_reward, nstep = GamePlayer.play_episode(self.env, lambda state: action_function(self, state), self.memory)
+            tot_reward, nstep = GamePlayer.play_episode(self.env, action_function, self.memory)
             nbrecords += nstep
             if nbrecords >= N:
                 GamePlayer.model_fit_memory(state_size, N, gamma, reward_when_done, self.memory, self.model, self.vModel)
@@ -473,16 +462,9 @@ class GamePlayer:
         tot_reward_list = []
         nbrecords = 0
 
-        def action_function(self, state):
-            state = np.array(state).reshape(1, state_size)
-            if np.random.rand(1) < epsilon:
-                action = self.env.action_space.sample()
-            else:
-                action = random_argmax(self.model.predict(state)[0])
-            return action
-
+        action_function = lambda state: GamePlayer.epsilon_action(state, self.env, epsilon, self.keras_trained_action)
         for episode in range(total_episodes):
-            tot_reward, nstep = GamePlayer.play_episode(self.env, lambda state: action_function(self, state), self.memory)
+            tot_reward, nstep = GamePlayer.play_episode(self.env, action_function, self.memory)
             nbrecords += nstep
             if nbrecords >= N:
                 GamePlayer.model_fit_memory(state_size, N, gamma, reward_when_done, self.memory, self.model)
