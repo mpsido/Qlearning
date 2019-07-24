@@ -290,6 +290,31 @@ class GamePlayer:
         return tot_reward_list
 
     @staticmethod
+    def vmodel_fit_memory(state_size, sample_size, gamma, reward_when_done, memory, model, vModel):
+        Y = []
+        batch = memory.sample(sample_size)
+        S = np.array([np.array(each[0]).reshape(1, state_size) for each in batch])
+        for i, (state, action, reward, done, next_state) in enumerate(batch):
+            state = np.array(state).reshape(1, state_size)
+            Y.append(vModel.predict(np.array(state))[0])
+            if done:
+                if reward_when_done is not None:
+                    Y[i] = reward_when_done
+                else:
+                    Y[i] = reward
+            else:
+                Vnext = vModel.predict(np.array(next_state).reshape(1, state_size))[0]
+                Y[i] = reward + gamma * np.max(Vnext)
+        vModel.fit(S.reshape(sample_size, state_size), Y, epochs=1, verbose=0)
+
+        NS = np.array([each[4] for each in batch]).reshape(sample_size, state_size)
+        # R = np.array([np.array(each[3]).reshape(1, state_size) for each in batch])
+        # NSR = np.concatenate((NS, R), axis=1)
+        A = np.array([each[1] for each in batch]).reshape(sample_size, 1, 1)
+        SA = np.concatenate((S, A), axis=2)
+        model.fit(SA.reshape(sample_size, state_size+1), NS.reshape(sample_size, state_size), epochs=1, verbose=0)
+
+    @staticmethod
     def model_fit_memory(state_size, sample_size, gamma, reward_when_done, memory, model, vModel=None):
         Y = []
         batch = memory.sample(sample_size)
@@ -334,6 +359,11 @@ class GamePlayer:
         return tot_reward, nstep
 
     def model_train(self, total_episodes, train_function, layers_size=[24, 24], gamma=0.9, alpha=0.001, reward_when_done=None, logEvery=1, trainVmodel=False):
+        """
+        vModel is a DL network trained to emulate state transitions
+        model is a DL network trained to compute a vector [ Q(s,a1), ..., Q(s,an) ]
+        This function trains the model while playing with the off-policy defined in train_function
+        """
         state_size = self.env.observation_space.shape[0]
         action_size = self.env.action_space.n
         if not hasattr(self, 'memory'):
@@ -344,16 +374,18 @@ class GamePlayer:
             if int(nb_layers) < 1:
                 raise RangeError(nb_layers, len(layers_size))
             self.model = Sequential()
-            for i in range(nb_layers):
-                self.model.add(Dense(layers_size[i], input_dim=state_size, activation='relu'))
+            self.model.add(Dense(layers_size[0], input_dim=state_size, activation='relu'))
+            for i in range(1, nb_layers):
+                self.model.add(Dense(layers_size[i], activation='relu'))
             self.model.add(Dense(action_size, activation='linear'))
             self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
         if trainVmodel:
             if not hasattr(self, 'vModel'):
                 print("Creating vModel")
                 self.vModel = Sequential()
-                for i in range(nb_layers):
-                    self.vModel.add(Dense(layers_size[i], input_dim=state_size+1, activation='relu'))
+                self.vModel.add(Dense(layers_size[0], input_dim=state_size+1, activation='relu'))
+                for i in range(1, nb_layers):
+                    self.vModel.add(Dense(layers_size[i], activation='relu'))
                 self.vModel.add(Dense(state_size, activation='linear'))
                 self.vModel.compile(loss='mse', optimizer=Adam(lr=alpha))
         tot_reward_list = []
@@ -366,6 +398,13 @@ class GamePlayer:
                 tot_reward_list = []
     
     def dvn_action(self, state):
+        """
+        vModel is a DL network trained to emulate state transitions
+        model is a DL network trained to compute a vector [ Q(s,a1), ..., Q(s,an) ]
+        V(s) is computed as max model.predict(s,a)
+        This function returns the action leading to the state with the best V value
+        Need to run keras_dqn_dvn for training
+        """
         state_size = self.env.observation_space.shape[0]
         action_size = self.env.action_space.n
         state = np.array(state).reshape(1, state_size)
@@ -376,6 +415,82 @@ class GamePlayer:
             next_state = self.vModel.predict(vector)[0:state_size]
             VValues.append(max(self.model.predict(next_state)[0]))
         return random_argmax(VValues)
+
+    def dvn_vvalue_action(self, state):
+        """
+        model is a DL network trained to emulate state transitions
+        vModel is a DL network trained to compute a vector V(s)
+        This function returns the action leading to the state with the best V value
+        Need to run keras_dvn for training
+        """
+        state_size = self.env.observation_space.shape[0]
+        action_size = self.env.action_space.n
+        state = np.array(state).reshape(1, state_size)
+        VValues = []
+        for action in range(action_size):
+            action = np.array(action).reshape(1, 1)
+            vector = np.concatenate((state, action), axis=1)
+            next_state = self.model.predict(vector)
+            VValues.append(self.vModel.predict(next_state))
+        return random_argmax(VValues)
+
+    def keras_dvn(self, N, total_episodes, layers_size=[32, 32], gamma=0.9, epsilon=0.2,
+        decay_rate=0.0, alpha=0.001, reward_when_done=None, logEvery=None):
+        state_size = self.env.observation_space.shape[0]
+        action_size = self.env.action_space.n
+        if logEvery is None:
+            logEvery = N*2
+
+        if logEvery > total_episodes:
+            raise RangeError("logEvery should be lower than total_episodes")
+
+        nb_layers = len(layers_size)
+        if int(nb_layers) < 1:
+            raise RangeError(nb_layers, len(layers_size))
+
+        if not hasattr(self, 'model'):
+            print("Creating model")
+            self.model = Sequential()
+            self.model.add(Dense(layers_size[0], input_dim=state_size+1, activation='relu'))
+            for i in range(1, nb_layers):
+                self.model.add(Dense(layers_size[i], activation='relu'))
+            self.model.add(Dense(state_size, activation='linear'))
+            self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
+        # Creating the vModel
+        if not hasattr(self, 'vModel'):
+            print("Creating vModel")
+            self.vModel = Sequential()
+            self.vModel.add(Dense(layers_size[0], input_dim=state_size, activation='relu'))
+            for i in range(1, nb_layers):
+                self.vModel.add(Dense(layers_size[i], activation='relu'))
+            self.vModel.add(Dense(1, activation='linear'))
+            self.vModel.compile(loss='mse', optimizer=Adam(lr=alpha))
+
+        if not hasattr(self, 'memory'):
+            self.memory = Memory(200000)
+
+        reward_list = []
+        tot_reward_list = []
+        nbrecords = 0
+
+        action_function = lambda state: GamePlayer.epsilon_action(state, self.env, epsilon, self.dvn_vvalue_action)
+        for episode in range(total_episodes):
+            tot_reward, nstep = GamePlayer.play_episode(self.env, action_function, self.memory)
+            nbrecords += nstep
+            if nbrecords >= N:
+                GamePlayer.vmodel_fit_memory(state_size, N, gamma, reward_when_done, self.memory, self.model, self.vModel)
+                nbrecords = 0
+            reward_list.append(tot_reward)
+
+            if logEvery > 0 and (episode+1) % logEvery == 0:
+                avrg = np.mean(reward_list)
+                tot_reward_list.append(avrg)
+                print('Episode {} Average Reward: {}, alpha: {}'.format(episode+1, avrg, K.eval(self.vModel.optimizer.lr)))
+                reward_list = []
+            if decay_rate != 0.0:
+                epsilon = max(self.min_epsilon, epsilon*decay_rate)
+
+        print("Total reward average:", np.mean(tot_reward_list))
 
     def keras_dqn_dvn(self, N, total_episodes, layers_size=[32, 32], gamma=0.9, epsilon=0.2,
         decay_rate=0.0, alpha=0.001, reward_when_done=None, logEvery=None):
@@ -395,8 +510,9 @@ class GamePlayer:
         if not hasattr(self, 'model'):
             print("Creating model")
             self.model = Sequential()
-            for i in range(nb_layers):
-                self.model.add(Dense(layers_size[i], input_dim=state_size, activation='relu'))
+            self.model.add(Dense(layers_size[0], input_dim=state_size, activation='relu'))
+            for i in range(1, nb_layers):
+                self.model.add(Dense(layers_size[i], activation='relu'))
             self.model.add(Dense(action_size, activation='linear'))
             self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
 
@@ -404,8 +520,9 @@ class GamePlayer:
         if not hasattr(self, 'vModel'):
             print("Creating vModel")
             self.vModel = Sequential()
-            for i in range(nb_layers):
-                self.vModel.add(Dense(layers_size[i], input_dim=state_size+1, activation='relu'))
+            self.vModel.add(Dense(layers_size[0], input_dim=state_size+1, activation='relu'))
+            for i in range(1, nb_layers):
+                self.vModel.add(Dense(layers_size[i], activation='relu'))
             self.vModel.add(Dense(state_size, activation='linear'))
             self.vModel.compile(loss='mse', optimizer=Adam(lr=alpha))
 
@@ -450,8 +567,9 @@ class GamePlayer:
         if not hasattr(self, 'model'):
             print("Creating model")
             self.model = Sequential()
-            for i in range(nb_layers):
-                self.model.add(Dense(layers_size[i], input_dim=state_size, activation='relu'))
+            self.model.add(Dense(layers_size[0], input_dim=state_size, activation='relu'))
+            for i in range(1, nb_layers):
+                self.model.add(Dense(layers_size[i], activation='relu'))
             self.model.add(Dense(action_size, activation='linear'))
             self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
 
@@ -498,8 +616,9 @@ class GamePlayer:
         # Creating the model
         if not hasattr(self, 'model'):
             self.model = Sequential()
-            for i in range(nb_layers):
-                self.model.add(Dense(layers_size[i], input_dim=state_size, activation='relu'))
+            self.model.add(Dense(layers_size[0], input_dim=state_size, activation='relu'))
+            for i in range(1, nb_layers):
+                self.model.add(Dense(layers_size[i], activation='relu'))
             self.model.add(Dense(action_size, activation='linear'))
             self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
 
