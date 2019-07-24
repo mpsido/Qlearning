@@ -290,57 +290,92 @@ class GamePlayer:
         return tot_reward_list
 
     @staticmethod
-    def vmodel_fit_memory(state_size, sample_size, gamma, reward_when_done, memory, model, vModel):
-        Y = []
-        batch = memory.sample(sample_size)
-        S = np.array([np.array(each[0]).reshape(1, state_size) for each in batch])
-        for i, (state, action, reward, done, next_state) in enumerate(batch):
-            state = np.array(state).reshape(1, state_size)
-            Y.append(vModel.predict(np.array(state))[0])
-            if done:
-                if reward_when_done is not None:
-                    Y[i] = reward_when_done
-                else:
-                    Y[i] = reward
-            else:
-                Vnext = vModel.predict(np.array(next_state).reshape(1, state_size))[0]
-                Y[i] = reward + gamma * np.max(Vnext)
-        vModel.fit(S.reshape(sample_size, state_size), Y, epochs=1, verbose=0)
-
-        NS = np.array([each[4] for each in batch]).reshape(sample_size, state_size)
-        # R = np.array([np.array(each[3]).reshape(1, state_size) for each in batch])
-        # NSR = np.concatenate((NS, R), axis=1)
-        A = np.array([each[1] for each in batch]).reshape(sample_size, 1, 1)
-        SA = np.concatenate((S, A), axis=2)
-        model.fit(SA.reshape(sample_size, state_size+1), NS.reshape(sample_size, state_size), epochs=1, verbose=0)
-
-    @staticmethod
-    def model_fit_memory(state_size, sample_size, gamma, reward_when_done, memory, model, vModel=None):
-        Y = []
-        batch = memory.sample(sample_size)
-        S = np.array([np.array(each[0]).reshape(1, state_size) for each in batch])
-        for i, (state, action, reward, done, next_state) in enumerate(batch):
-            Y.append(model.predict(np.array(state).reshape(1, state_size))[0])
-            next_state = np.array(next_state).reshape(1, state_size)
-            if done:
-                if reward_when_done is not None:
-                    Y[i][action] = reward_when_done
-                else:
-                    Y[i][action] = reward
-            else:
-                Qnext = model.predict(next_state)[0]
-                Y[i][action] = reward + gamma * np.max(Qnext)
-        Y = np.stack(Y, axis=0)
-        model.fit(S.reshape(sample_size, state_size), Y, epochs=1, verbose=0)
-
+    def model_fit_memory(state_size, sample_size, gamma, reward_when_done, memory, qModel=None, vModel=None, transitionModel=None):
         if vModel is not None:
+            Y = []
+            batch = memory.sample(sample_size)
+            S = np.array([np.array(each[0]).reshape(1, state_size) for each in batch])
+            for i, (state, action, reward, done, next_state) in enumerate(batch):
+                state = np.array(state).reshape(1, state_size)
+                Y.append(vModel.predict(np.array(state))[0])
+                if done:
+                    if reward_when_done is not None:
+                        Y[i] = reward_when_done
+                    else:
+                        Y[i] = reward
+                else:
+                    Vnext = vModel.predict(np.array(next_state).reshape(1, state_size))[0]
+                    Y[i] = reward + gamma * np.max(Vnext)
+            vModel.fit(S.reshape(sample_size, state_size), Y, epochs=1, verbose=0)
+
+        if qModel is not None:
+            Y = []
+            batch = memory.sample(sample_size)
+            S = np.array([np.array(each[0]).reshape(1, state_size) for each in batch])
+            for i, (state, action, reward, done, next_state) in enumerate(batch):
+                Y.append(qModel.predict(np.array(state).reshape(1, state_size))[0])
+                next_state = np.array(next_state).reshape(1, state_size)
+                if done:
+                    if reward_when_done is not None:
+                        Y[i][action] = reward_when_done
+                    else:
+                        Y[i][action] = reward
+                else:
+                    Qnext = qModel.predict(next_state)[0]
+                    Y[i][action] = reward + gamma * np.max(Qnext)
+            Y = np.stack(Y, axis=0)
+            qModel.fit(S.reshape(sample_size, state_size), Y, epochs=1, verbose=0)
+
+        if transitionModel is not None:
             NS = np.array([each[4] for each in batch]).reshape(sample_size, state_size)
             # R = np.array([np.array(each[3]).reshape(1, state_size) for each in batch])
             # NSR = np.concatenate((NS, R), axis=1)
             A = np.array([each[1] for each in batch]).reshape(sample_size, 1, 1)
             SA = np.concatenate((S, A), axis=2)
-            vModel.fit(SA.reshape(sample_size, state_size+1), NS.reshape(sample_size, state_size), epochs=1, verbose=0)
+            transitionModel.fit(SA.reshape(sample_size, state_size+1), NS.reshape(sample_size, state_size), epochs=1, verbose=0)
 
+    def create_vModel(self, layers_size, alpha):
+        state_size = self.env.observation_space.shape[0]
+        nb_layers = len(layers_size)
+        if int(nb_layers) < 1:
+            raise RangeError(nb_layers, len(layers_size))
+        if not hasattr(self, 'vModel'):
+            print("Creating vModel")
+            self.vModel = Sequential()
+            self.vModel.add(Dense(layers_size[0], input_dim=state_size, activation='relu'))
+            for i in range(1, nb_layers):
+                self.vModel.add(Dense(layers_size[i], activation='relu'))
+            self.vModel.add(Dense(1, activation='linear'))
+            self.vModel.compile(loss='mse', optimizer=Adam(lr=alpha))
+
+    def create_qModel(self, layers_size, alpha):
+        state_size = self.env.observation_space.shape[0]
+        action_size = self.env.action_space.n
+        nb_layers = len(layers_size)
+        if int(nb_layers) < 1:
+            raise RangeError(nb_layers, len(layers_size))
+        if not hasattr(self, 'qModel'):
+            print("Creating qModel")
+            self.qModel = Sequential()
+            self.qModel.add(Dense(layers_size[0], input_dim=state_size, activation='relu'))
+            for i in range(1, nb_layers):
+                self.qModel.add(Dense(layers_size[i], activation='relu'))
+            self.qModel.add(Dense(action_size, activation='linear'))
+            self.qModel.compile(loss='mse', optimizer=Adam(lr=alpha))
+
+    def create_transitionModel(self, layers_size, alpha):
+        state_size = self.env.observation_space.shape[0]
+        nb_layers = len(layers_size)
+        if int(nb_layers) < 1:
+            raise RangeError(nb_layers, len(layers_size))
+        if not hasattr(self, 'transitionModel'):
+            print("Creating transitionModel")
+            self.transitionModel = Sequential()
+            self.transitionModel.add(Dense(layers_size[0], input_dim=state_size+1, activation='relu'))
+            for i in range(1, nb_layers):
+                self.transitionModel.add(Dense(layers_size[i], activation='relu'))
+            self.transitionModel.add(Dense(state_size, activation='linear'))
+            self.transitionModel.compile(loss='mse', optimizer=Adam(lr=alpha))
 
     @staticmethod
     def play_episode(env, action_function, memory=None):
@@ -358,7 +393,8 @@ class GamePlayer:
             nstep += 1
         return tot_reward, nstep
 
-    def model_train(self, total_episodes, train_function, layers_size=[24, 24], gamma=0.9, alpha=0.001, reward_when_done=None, logEvery=1, trainVmodel=False):
+    def off_policy_model_train(self, total_episodes, train_function, layers_size=[24, 24], gamma=0.9, alpha=0.001, reward_when_done=None, 
+        logEvery=1, trainTransitionModel=False, trainQModel=False, trainVModel=False):
         """
         vModel is a DL network trained to emulate state transitions
         model is a DL network trained to compute a vector [ Q(s,a1), ..., Q(s,an) ]
@@ -368,36 +404,26 @@ class GamePlayer:
         action_size = self.env.action_space.n
         if not hasattr(self, 'memory'):
             self.memory = Memory(200000)
-        if not hasattr(self, 'model'):
-            print("Creating model")
-            nb_layers = len(layers_size)
-            if int(nb_layers) < 1:
-                raise RangeError(nb_layers, len(layers_size))
-            self.model = Sequential()
-            self.model.add(Dense(layers_size[0], input_dim=state_size, activation='relu'))
-            for i in range(1, nb_layers):
-                self.model.add(Dense(layers_size[i], activation='relu'))
-            self.model.add(Dense(action_size, activation='linear'))
-            self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
-        if trainVmodel:
-            if not hasattr(self, 'vModel'):
-                print("Creating vModel")
-                self.vModel = Sequential()
-                self.vModel.add(Dense(layers_size[0], input_dim=state_size+1, activation='relu'))
-                for i in range(1, nb_layers):
-                    self.vModel.add(Dense(layers_size[i], activation='relu'))
-                self.vModel.add(Dense(state_size, activation='linear'))
-                self.vModel.compile(loss='mse', optimizer=Adam(lr=alpha))
+
+        if trainVModel:
+            self.create_vModel(layers_size, alpha)
+        if trainQModel:
+            self.create_qModel(layers_size, alpha)
+        if trainTransitionModel:
+            self.create_transitionModel(layers_size, alpha)
         tot_reward_list = []
         for episode in range(total_episodes):
             tot_reward, nstep = GamePlayer.play_episode(self.env, train_function, self.memory)
             tot_reward_list.append(tot_reward)
-            GamePlayer.model_fit_memory(state_size, nstep, gamma, reward_when_done, self.memory, self.model, self.vModel if trainVmodel else None)
+            GamePlayer.model_fit_memory(state_size, nstep, gamma, reward_when_done, self.memory, 
+                qModel=self.qModel if trainQModel else None,
+                vModel=self.vModel if trainVModel else None,
+                transitionModel=self.transitionModel if trainTransitionModel else None)
             if logEvery > 0 and (episode+1) % logEvery == 0:
-                print('Episode {} Average Reward: {}, alpha: {}'.format(episode+1, np.mean(tot_reward_list), K.eval(self.model.optimizer.lr)))
+                print('Episode {} Average Reward: {}, alpha: {}'.format(episode+1, np.mean(tot_reward_list), K.eval(self.qModel.optimizer.lr)))
                 tot_reward_list = []
     
-    def dvn_action(self, state):
+    def keras_qtrained_modelTrained_action(self, state):
         """
         vModel is a DL network trained to emulate state transitions
         model is a DL network trained to compute a vector [ Q(s,a1), ..., Q(s,an) ]
@@ -412,11 +438,11 @@ class GamePlayer:
         for action in range(action_size):
             action = np.array(action).reshape(1, 1)
             vector = np.concatenate((state, action), axis=1)
-            next_state = self.vModel.predict(vector)[0:state_size]
-            VValues.append(max(self.model.predict(next_state)[0]))
+            next_state = self.transitionModel.predict(vector)[0:state_size]
+            VValues.append(max(self.qModel.predict(next_state)[0]))
         return random_argmax(VValues)
 
-    def dvn_vvalue_action(self, state):
+    def keras_vtrained_action(self, state):
         """
         model is a DL network trained to emulate state transitions
         vModel is a DL network trained to compute a vector V(s)
@@ -430,11 +456,11 @@ class GamePlayer:
         for action in range(action_size):
             action = np.array(action).reshape(1, 1)
             vector = np.concatenate((state, action), axis=1)
-            next_state = self.model.predict(vector)
+            next_state = self.transitionModel.predict(vector)
             VValues.append(self.vModel.predict(next_state))
         return random_argmax(VValues)
 
-    def keras_dvn(self, N, total_episodes, layers_size=[32, 32], gamma=0.9, epsilon=0.2,
+    def keras_vTrain_modelTrain(self, N, total_episodes, layers_size=[32, 32], gamma=0.9, epsilon=0.2,
         decay_rate=0.0, alpha=0.001, reward_when_done=None, logEvery=None):
         state_size = self.env.observation_space.shape[0]
         action_size = self.env.action_space.n
@@ -448,54 +474,44 @@ class GamePlayer:
         if int(nb_layers) < 1:
             raise RangeError(nb_layers, len(layers_size))
 
-        if not hasattr(self, 'model'):
-            print("Creating model")
-            self.model = Sequential()
-            self.model.add(Dense(layers_size[0], input_dim=state_size+1, activation='relu'))
-            for i in range(1, nb_layers):
-                self.model.add(Dense(layers_size[i], activation='relu'))
-            self.model.add(Dense(state_size, activation='linear'))
-            self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
+        self.create_transitionModel(layers_size, alpha)
         # Creating the vModel
-        if not hasattr(self, 'vModel'):
-            print("Creating vModel")
-            self.vModel = Sequential()
-            self.vModel.add(Dense(layers_size[0], input_dim=state_size, activation='relu'))
-            for i in range(1, nb_layers):
-                self.vModel.add(Dense(layers_size[i], activation='relu'))
-            self.vModel.add(Dense(1, activation='linear'))
-            self.vModel.compile(loss='mse', optimizer=Adam(lr=alpha))
+        self.create_vModel(layers_size, alpha)
 
         if not hasattr(self, 'memory'):
             self.memory = Memory(200000)
 
-        reward_list = []
-        tot_reward_list = []
-        nbrecords = 0
+        action_function = lambda state: GamePlayer.epsilon_action(state, self.env, epsilon, self.keras_vtrained_action)
+        GamePlayer.model_train(self.env, total_episodes, N, epsilon, self.min_epsilon, decay_rate, gamma, reward_when_done, logEvery, self.memory, action_function, 
+            qModel=None, vModel=self.vModel, transitionModel=self.transitionModel)
 
-        action_function = lambda state: GamePlayer.epsilon_action(state, self.env, epsilon, self.dvn_vvalue_action)
-        for episode in range(total_episodes):
-            tot_reward, nstep = GamePlayer.play_episode(self.env, action_function, self.memory)
-            nbrecords += nstep
-            if nbrecords >= N:
-                GamePlayer.vmodel_fit_memory(state_size, N, gamma, reward_when_done, self.memory, self.model, self.vModel)
-                nbrecords = 0
-            reward_list.append(tot_reward)
-
-            if logEvery > 0 and (episode+1) % logEvery == 0:
-                avrg = np.mean(reward_list)
-                tot_reward_list.append(avrg)
-                print('Episode {} Average Reward: {}, alpha: {}'.format(episode+1, avrg, K.eval(self.vModel.optimizer.lr)))
-                reward_list = []
-            if decay_rate != 0.0:
-                epsilon = max(self.min_epsilon, epsilon*decay_rate)
-
-        print("Total reward average:", np.mean(tot_reward_list))
-
-    def keras_dqn_dvn(self, N, total_episodes, layers_size=[32, 32], gamma=0.9, epsilon=0.2,
+    def keras_qTrain_modelTrain(self, N, total_episodes, layers_size=[32, 32], gamma=0.9, epsilon=0.2,
         decay_rate=0.0, alpha=0.001, reward_when_done=None, logEvery=None):
-        state_size = self.env.observation_space.shape[0]
-        action_size = self.env.action_space.n
+        if logEvery is None:
+            logEvery = N*2
+
+        if logEvery > total_episodes:
+            raise RangeError("logEvery should be lower than total_episodes")
+
+        nb_layers = len(layers_size)
+        if int(nb_layers) < 1:
+            raise RangeError(nb_layers, len(layers_size))
+
+        # Creating the qModel
+        self.create_qModel(layers_size, alpha)
+
+        # Creating the transitionModel
+        self.create_transitionModel(layers_size, alpha)
+
+        if not hasattr(self, 'memory'):
+            self.memory = Memory(200000)
+
+        action_function = lambda state: GamePlayer.epsilon_action(state, self.env, epsilon, self.keras_qtrained_modelTrained_action)
+        GamePlayer.model_train(self.env, total_episodes, N, epsilon, self.min_epsilon, decay_rate, gamma, reward_when_done, logEvery, self.memory, action_function, 
+            qModel=self.qModel, vModel=None, transitionModel=self.transitionModel)
+
+    def keras_qTrain(self, N, total_episodes, layers_size=[24, 24], gamma=0.9, epsilon=0.2, 
+        decay_rate=0.0, alpha=0.001, reward_when_done=None, logEvery=None):
         if logEvery is None:
             logEvery = N*2
 
@@ -507,85 +523,28 @@ class GamePlayer:
             raise RangeError(nb_layers, len(layers_size))
 
         # Creating the model
-        if not hasattr(self, 'model'):
-            print("Creating model")
-            self.model = Sequential()
-            self.model.add(Dense(layers_size[0], input_dim=state_size, activation='relu'))
-            for i in range(1, nb_layers):
-                self.model.add(Dense(layers_size[i], activation='relu'))
-            self.model.add(Dense(action_size, activation='linear'))
-            self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
-
-        # Creating the vModel
-        if not hasattr(self, 'vModel'):
-            print("Creating vModel")
-            self.vModel = Sequential()
-            self.vModel.add(Dense(layers_size[0], input_dim=state_size+1, activation='relu'))
-            for i in range(1, nb_layers):
-                self.vModel.add(Dense(layers_size[i], activation='relu'))
-            self.vModel.add(Dense(state_size, activation='linear'))
-            self.vModel.compile(loss='mse', optimizer=Adam(lr=alpha))
+        self.create_qModel(layers_size, alpha)
 
         if not hasattr(self, 'memory'):
             self.memory = Memory(200000)
 
-        tot_reward_list = []
-        nbrecords = 0
+        action_function = lambda state: GamePlayer.epsilon_action(state, self.env, epsilon, self.keras_qtrained_action)
+        GamePlayer.model_train(self.env, total_episodes, N, epsilon, self.min_epsilon, decay_rate, gamma, reward_when_done, logEvery, self.memory, action_function, 
+            qModel=self.qModel, vModel=None, transitionModel=None)
 
-        action_function = lambda state: GamePlayer.epsilon_action(state, self.env, epsilon, self.dvn_action)
-        for episode in range(total_episodes):
-            tot_reward, nstep = GamePlayer.play_episode(self.env, action_function, self.memory)
-            nbrecords += nstep
-            if nbrecords >= N:
-                GamePlayer.model_fit_memory(state_size, N, gamma, reward_when_done, self.memory, self.model, self.vModel)
-                nbrecords = 0
-            tot_reward_list.append(tot_reward)
-
-            if logEvery > 0 and (episode+1) % logEvery == 0:
-                print('Episode {} Average Reward: {}, alpha: {}'.format(episode+1, np.mean(tot_reward_list), K.eval(self.model.optimizer.lr)))
-                tot_reward_list = []
-            if decay_rate != 0.0:
-                epsilon = max(self.min_epsilon, epsilon*decay_rate)
-
-        print("Total reward average:", np.mean(tot_reward_list))
-
-    def keras_dqn_replay(self, N, total_episodes, layers_size=[24, 24], gamma=0.9, epsilon=0.2, 
-        decay_rate=0.0, alpha=0.001, reward_when_done=None, logEvery=None):
-        state_size = self.env.observation_space.shape[0]
-        action_size = self.env.action_space.n
-        if logEvery is None:
-            logEvery = N*2
-
-        if logEvery > total_episodes:
-            raise RangeError("logEvery should be lower than total_episodes")
-
-        nb_layers = len(layers_size)
-        if int(nb_layers) < 1:
-            raise RangeError(nb_layers, len(layers_size))
-
-        # Creating the model
-        if not hasattr(self, 'model'):
-            print("Creating model")
-            self.model = Sequential()
-            self.model.add(Dense(layers_size[0], input_dim=state_size, activation='relu'))
-            for i in range(1, nb_layers):
-                self.model.add(Dense(layers_size[i], activation='relu'))
-            self.model.add(Dense(action_size, activation='linear'))
-            self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
-
-        if not hasattr(self, 'memory'):
-            self.memory = Memory(200000)
-
+    @staticmethod
+    def model_train(env, total_episodes, N, epsilon, min_epsilon, decay_rate, gamma, reward_when_done, logEvery, memory, action_function, 
+        qModel=None, vModel=None, transitionModel=None):
+        state_size = env.observation_space.shape[0]
         reward_list = []
         tot_reward_list = []
         nbrecords = 0
 
-        action_function = lambda state: GamePlayer.epsilon_action(state, self.env, epsilon, self.keras_trained_action)
         for episode in range(total_episodes):
-            tot_reward, nstep = GamePlayer.play_episode(self.env, action_function, self.memory)
+            tot_reward, nstep = GamePlayer.play_episode(env, action_function, memory)
             nbrecords += nstep
             if nbrecords >= N:
-                GamePlayer.model_fit_memory(state_size, N, gamma, reward_when_done, self.memory, self.model)
+                GamePlayer.model_fit_memory(state_size, N, gamma, reward_when_done, memory, qModel=qModel, vModel=vModel, transitionModel=transitionModel)
                 nbrecords = 0
             reward_list.append(tot_reward)
 
@@ -593,92 +552,17 @@ class GamePlayer:
                 ave_reward = np.mean(reward_list)
                 tot_reward_list.append(ave_reward)
                 reward_list = []
-                print('Episode {} Average Reward: {}, alpha: {}, e: {}'.format(episode+1, ave_reward, K.eval(self.model.optimizer.lr), epsilon))
+                print('Episode {} Average Reward: {}, e: {}'.format(episode+1, ave_reward, epsilon))
             if decay_rate != 0.0:
-                epsilon = max(self.min_epsilon, epsilon*decay_rate)
+                epsilon = max(min_epsilon, epsilon*decay_rate)
 
         print("Total reward average:", np.mean(tot_reward_list))
 
-    def keras_dqn(self, N, total_episodes, layers_size=[24, 24], gamma=0.9, epsilon=0.2, 
-        decay_rate=0.0, alpha=0.001, reward_when_done=None, logEvery=None):
-        state_size = self.env.observation_space.shape[0]
-        action_size = self.env.action_space.n
-        if logEvery is None:
-            logEvery = N*2
-
-        if logEvery > total_episodes:
-            raise RangeError("logEvery should be lower than total_episodes")
-
-        nb_layers = len(layers_size)
-        if int(nb_layers) < 1:
-            raise RangeError(nb_layers, len(layers_size))
-
-        # Creating the model
-        if not hasattr(self, 'model'):
-            self.model = Sequential()
-            self.model.add(Dense(layers_size[0], input_dim=state_size, activation='relu'))
-            for i in range(1, nb_layers):
-                self.model.add(Dense(layers_size[i], activation='relu'))
-            self.model.add(Dense(action_size, activation='linear'))
-            self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
-
-        reward_list = []
-        tot_reward_list = []
-        nstep = 0
-        Y = []
-        S = []
-        for episode in range(total_episodes):
-            state = self.env.reset()
-            done = False
-            tot_reward = 0
-            while done is False:
-                if nstep == N:
-                    S = np.stack(S, axis=0).reshape(N, state_size)
-                    Y = np.stack(Y, axis=0)
-                    self.model.fit(S, Y, epochs=1, verbose=0)
-                    nstep = 0
-                    Y = []
-                    S = []
-
-                state = np.array(state).reshape(1, state_size)
-                S.append(state)
-                Y.append(self.model.predict(state)[0])
-                if np.random.rand(1) < epsilon:
-                    action = self.env.action_space.sample()
-                else:
-                    action = random_argmax(Y[nstep])
-
-                next_state, reward, done, _ = self.env.step(action)
-                next_state = np.array(next_state).reshape(1, state_size)
-                if done:
-                    if reward_when_done is not None:
-                        Y[nstep][action] = reward_when_done
-                    else:
-                        Y[nstep][action] = reward
-                else:
-                    Qnext = self.model.predict(next_state)[0]
-                    Y[nstep][action] = reward + gamma * np.max(Qnext)
-
-                state = next_state
-                tot_reward += reward
-                nstep += 1
-            reward_list.append(tot_reward)
-
-            if logEvery > 0 and (episode+1) % logEvery == 0:
-                ave_reward = np.mean(reward_list)
-                tot_reward_list.append(ave_reward)
-                reward_list = []
-                print('Episode {} Average Reward: {}, alpha: {}, e: {}'.format(episode+1, ave_reward, alpha, epsilon))
-            if decay_rate != 0.0:
-                epsilon = self.min_epsilon + (self.max_epsilon - self.min_epsilon) * np.exp(-decay_rate*episode)
-
-        print("Total reward average:", np.mean(tot_reward_list))
-
-    def keras_trained_action(self, state):
-        if self.model is None:
+    def keras_qtrained_action(self, state):
+        if self.qModel is None:
             raise ValueError("No model")
         state_size = self.env.observation_space.shape[0]
-        return random_argmax(self.model.predict(np.array(state).reshape(1, state_size))[0])
+        return random_argmax(self.qModel.predict(np.array(state).reshape(1, state_size))[0])
 
     def tf_dqn(self, N, total_episodes, layers_size=[24, 24], gamma=0.9, epsilon=0.2, alpha=0.001, reward_when_done=None, logEvery=None):
         state_size = self.env.observation_space.shape[0]
