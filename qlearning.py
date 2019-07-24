@@ -303,9 +303,9 @@ class GamePlayer:
     def model_fit_memory(state_size, sample_size, gamma, reward_when_done, memory, model):
         Y = []
         batch = memory.sample(sample_size)
-        S = np.array([each[0] for each in batch])
+        S = np.array([np.array(each[0]).reshape(1, state_size) for each in batch])
         for i, (state, action, reward, done, next_state) in enumerate(batch):
-            Y.append(model.predict(state)[0])
+            Y.append(model.predict(np.array(state).reshape(1, state_size))[0])
             next_state = np.array(next_state).reshape(1, state_size)
             if done:
                 if reward_when_done is not None:
@@ -317,6 +317,22 @@ class GamePlayer:
                 Y[i][action] = reward + gamma * np.max(Qnext)
         Y = np.stack(Y, axis=0)
         model.fit(S.reshape(sample_size, state_size), Y, epochs=1, verbose=0)
+
+    @staticmethod
+    def play_episode(env, action_function, memory=None):
+        state = env.reset()
+        done = False
+        tot_reward = 0
+        nstep = 0
+        while done is False:
+            action = action_function(state)
+            next_state, reward, done, _ = env.step(action)
+            if memory is not None:
+                memory.add((state, action, reward, done, next_state))
+            state = next_state
+            tot_reward += reward
+            nstep += 1
+        return tot_reward, nstep
 
     def model_train(self, total_episodes, train_function, layers_size=[24, 24], gamma=0.9, alpha=0.001, reward_when_done=None, logEvery=1):
         state_size = self.env.observation_space.shape[0]
@@ -333,21 +349,9 @@ class GamePlayer:
                 self.model.add(Dense(layers_size[i], input_dim=state_size, activation='relu'))
             self.model.add(Dense(action_size, activation='linear'))
             self.model.compile(loss='mse', optimizer=Adam(lr=alpha))
-        tot_reward = 0
         tot_reward_list = []
         for episode in range(total_episodes):
-            state = self.env.reset()
-            done = False
-            tot_reward = 0
-            nstep = 0
-            while done is False:
-                action = train_function(state)
-                state = np.array(state).reshape(1, state_size)
-                next_state, reward, done, _ = self.env.step(action)
-                self.memory.add((state, action, reward, done, next_state))
-                state = next_state
-                tot_reward += reward
-                nstep += 1
+            tot_reward, nstep = GamePlayer.play_episode(self.env, train_function, self.memory)
             tot_reward_list.append(tot_reward)
             GamePlayer.model_fit_memory(state_size, nstep, gamma, reward_when_done, self.memory, self.model)
             if logEvery > 0 and (episode+1) % logEvery == 0:
@@ -382,28 +386,22 @@ class GamePlayer:
 
         reward_list = []
         tot_reward_list = []
-        nstep = 0
+        nbrecords = 0
+
+        def action_function(self, state):
+            state = np.array(state).reshape(1, state_size)
+            if np.random.rand(1) < epsilon:
+                action = self.env.action_space.sample()
+            else:
+                action = random_argmax(self.model.predict(state)[0])
+            return action
+
         for episode in range(total_episodes):
-            state = self.env.reset()
-            done = False
-            tot_reward = 0
-            while done is False:
-                if nstep == N:
-                    GamePlayer.model_fit_memory(state_size, N, gamma, reward_when_done, self.memory, self.model)
-                    nstep = 0
-
-                state = np.array(state).reshape(1, state_size)
-                if np.random.rand(1) < epsilon:
-                    action = self.env.action_space.sample()
-                else:
-                    action = random_argmax(self.model.predict(state)[0])
-
-                next_state, reward, done, _ = self.env.step(action)
-                self.memory.add((state, action, reward, done, next_state))
-                
-                state = next_state
-                tot_reward += reward
-                nstep += 1
+            tot_reward, nstep = GamePlayer.play_episode(self.env, lambda state: action_function(self, state), self.memory)
+            nbrecords += nstep
+            if nbrecords >= N:
+                GamePlayer.model_fit_memory(state_size, N, gamma, reward_when_done, self.memory, self.model)
+                nbrecords = 0
             reward_list.append(tot_reward)
 
             if logEvery > 0 and (episode+1) % logEvery == 0:
