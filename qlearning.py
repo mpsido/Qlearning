@@ -299,6 +299,25 @@ class GamePlayer:
                 print('Episode {} Average Reward: {}, alpha: {}, e: {}, len(Q) {}'.format(episode+1, ave_reward, alpha, epsilon, len(self.qtable)))
         return tot_reward_list
 
+    @staticmethod
+    def model_fit_memory(state_size, sample_size, gamma, reward_when_done, memory, model):
+        Y = []
+        batch = memory.sample(sample_size)
+        S = np.array([each[0] for each in batch])
+        for i, (state, action, reward, done, next_state) in enumerate(batch):
+            Y.append(model.predict(state)[0])
+            next_state = np.array(next_state).reshape(1, state_size)
+            if done:
+                if reward_when_done is not None:
+                    Y[i][action] = reward_when_done
+                else:
+                    Y[i][action] = reward
+            else:
+                Qnext = model.predict(next_state)[0]
+                Y[i][action] = reward + gamma * np.max(Qnext)
+        Y = np.stack(Y, axis=0)
+        model.fit(S.reshape(sample_size, state_size), Y, epochs=1, verbose=0)
+
     def model_train(self, total_episodes, train_function, layers_size=[24, 24], gamma=0.9, alpha=0.001, reward_when_done=None, logEvery=1):
         state_size = self.env.observation_space.shape[0]
         action_size = self.env.action_space.n
@@ -330,22 +349,7 @@ class GamePlayer:
                 tot_reward += reward
                 nstep += 1
             tot_reward_list.append(tot_reward)
-            Y = []
-            batch = self.memory.sample(nstep)
-            S = np.array([each[0] for each in batch])
-            for i, (state, action, reward, done, next_state) in enumerate(batch):
-                Y.append(self.model.predict(state)[0])
-                next_state = np.array(next_state).reshape(1, state_size)
-                if done:
-                    if reward_when_done is not None:
-                        Y[i][action] = reward_when_done
-                    else:
-                        Y[i][action] = reward
-                else:
-                    Qnext = self.model.predict(next_state)[0]
-                    Y[i][action] = reward + gamma * np.max(Qnext)
-            Y = np.stack(Y, axis=0)
-            self.model.fit(S.reshape(nstep, state_size), Y, epochs=1, verbose=0)
+            GamePlayer.model_fit_memory(state_size, nstep, gamma, reward_when_done, self.memory, self.model)
             if logEvery > 0 and (episode+1) % logEvery == 0:
                 print('Episode {} Average Reward: {}, alpha: {}'.format(episode+1, np.mean(tot_reward_list), K.eval(self.model.optimizer.lr)))
                 tot_reward_list = []
@@ -385,22 +389,7 @@ class GamePlayer:
             tot_reward = 0
             while done is False:
                 if nstep == N:
-                    Y = []
-                    batch = self.memory.sample(N)
-                    S = np.array([each[0] for each in batch])
-                    for i, (state, action, reward, done, next_state) in enumerate(batch):
-                        Y.append(self.model.predict(state)[0])
-                        next_state = np.array(next_state).reshape(1, state_size)
-                        if done:
-                            if reward_when_done is not None:
-                                Y[i][action] = reward_when_done
-                            else:
-                                Y[i][action] = reward
-                        else:
-                            Qnext = self.model.predict(next_state)[0]
-                            Y[i][action] = reward + gamma * np.max(Qnext)
-                    Y = np.stack(Y, axis=0)
-                    self.model.fit(S.reshape(N, state_size), Y, epochs=1, verbose=0)
+                    GamePlayer.model_fit_memory(state_size, N, gamma, reward_when_done, self.memory, self.model)
                     nstep = 0
 
                 state = np.array(state).reshape(1, state_size)
