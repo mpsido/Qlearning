@@ -420,7 +420,7 @@ class GamePlayer:
                 vModel=self.vModel if trainVModel else None,
                 transitionModel=self.transitionModel if trainTransitionModel else None)
             if logEvery > 0 and (episode+1) % logEvery == 0:
-                print('Episode {} Average Reward: {}, alpha: {}'.format(episode+1, np.mean(tot_reward_list), K.eval(self.qModel.optimizer.lr)))
+                print('Episode {} Average Reward: {}'.format(episode+1, np.mean(tot_reward_list)))
                 tot_reward_list = []
     
     def keras_qtrained_modelTrained_action(self, state):
