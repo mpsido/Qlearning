@@ -291,6 +291,7 @@ class GamePlayer:
 
     @staticmethod
     def model_fit_memory(state_size, sample_size, gamma, reward_when_done, memory, qModel=None, vModel=None, transitionModel=None):
+        sample_size = min(sample_size, len(memory))
         if vModel is not None:
             Y = []
             batch = memory.sample(sample_size)
@@ -481,7 +482,7 @@ class GamePlayer:
         if not hasattr(self, 'memory'):
             self.memory = Memory(200000)
 
-        action_function = lambda state: GamePlayer.epsilon_action(state, self.env, epsilon, self.keras_vtrained_action)
+        action_function = lambda state, epsilon: GamePlayer.epsilon_action(state, self.env, epsilon, self.keras_vtrained_action)
         GamePlayer.model_train(self.env, total_episodes, N, epsilon, self.min_epsilon, decay_rate, gamma, reward_when_done, logEvery, self.memory, action_function, 
             qModel=None, vModel=self.vModel, transitionModel=self.transitionModel)
 
@@ -506,7 +507,7 @@ class GamePlayer:
         if not hasattr(self, 'memory'):
             self.memory = Memory(200000)
 
-        action_function = lambda state: GamePlayer.epsilon_action(state, self.env, epsilon, self.keras_qtrained_modelTrained_action)
+        action_function = lambda state, epsilon: GamePlayer.epsilon_action(state, self.env, epsilon, self.keras_qtrained_modelTrained_action)
         GamePlayer.model_train(self.env, total_episodes, N, epsilon, self.min_epsilon, decay_rate, gamma, reward_when_done, logEvery, self.memory, action_function, 
             qModel=self.qModel, vModel=None, transitionModel=self.transitionModel)
 
@@ -528,7 +529,7 @@ class GamePlayer:
         if not hasattr(self, 'memory'):
             self.memory = Memory(200000)
 
-        action_function = lambda state: GamePlayer.epsilon_action(state, self.env, epsilon, self.keras_qtrained_action)
+        action_function = lambda state, epsilon: GamePlayer.epsilon_action(state, self.env, epsilon, self.keras_qtrained_action)
         GamePlayer.model_train(self.env, total_episodes, N, epsilon, self.min_epsilon, decay_rate, gamma, reward_when_done, logEvery, self.memory, action_function, 
             qModel=self.qModel, vModel=None, transitionModel=None)
 
@@ -541,7 +542,8 @@ class GamePlayer:
         nbrecords = 0
 
         for episode in range(total_episodes):
-            tot_reward, nstep = GamePlayer.play_episode(env, action_function, memory)
+            epsilon_action_function = lambda state: action_function(state, epsilon)
+            tot_reward, nstep = GamePlayer.play_episode(env, epsilon_action_function, memory)
             nbrecords += nstep
             if nbrecords >= N:
                 GamePlayer.model_fit_memory(state_size, N, gamma, reward_when_done, memory, qModel=qModel, vModel=vModel, transitionModel=transitionModel)
