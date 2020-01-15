@@ -75,15 +75,14 @@ class TreasureCave(Game):
         print("\n".join([ ''.join(r) for r in render_map]))
 
     def evil_move(self, hero_coord):
+        possible_actions=['w', 's', 'a', 'd']
         evil_coord=TreasureCave.get_coord_from_pos(self.evil_pos)
-        for a in range(self.action_space.n):
+        for a in possible_actions:
             if self.make_move(evil_coord, a) == hero_coord:
                 return a
-        return self.action_space.sample()
+        return random.choice(possible_actions)
 
     def make_move(self, coord, action):
-        possible_actions=['w', 's', 'a', 'd']
-        action=possible_actions[action]
         if action == 'w':
             if coord[0] > 0:
                 coord=(coord[0]-1, coord[1])
@@ -101,6 +100,11 @@ class TreasureCave(Game):
         return coord
 
     def step(self, action):
+        possible_actions=['w', 's', 'a', 'd']
+        action=possible_actions[action]
+        return self.play_step(action)
+
+    def play_step(self, action):
         if self.done:
             return (self.hero_pos, self.evil_pos), self.reward, self.done, "Game over"
         hero_coord=TreasureCave.get_coord_from_pos(self.hero_pos)
