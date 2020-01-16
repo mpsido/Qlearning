@@ -31,19 +31,21 @@ class TreasureCave(Game):
             [".",".",".","0"],
             ["0",".",".","T"]
         ])
+        self.possible_actions=['w', 's', 'a', 'd','e']
         self.verbose=verbose
         self.reset()
         class ActionSpace:
             def sample(self):
                 return random.randrange(self.n)
         self.action_space = ActionSpace()
-        self.action_space.n = 4
+        self.action_space.n = len(self.possible_actions)
 
     def reset(self):
         self.done=False
         self.reward=0
         self.hero_pos=0
-        self.evil_pos=14
+        self.evil_pos=[14]
+        return (self.hero_pos, self.evil_pos), self.reward, self.done, "New game"
 
     @staticmethod
     def get_pos_from_coord(coord):
@@ -60,27 +62,29 @@ class TreasureCave(Game):
         return self.treasure_map[coord[0]][coord[1]] == "0"
 
     def is_evil(self, coord):
-        return coord == TreasureCave.get_coord_from_pos(self.evil_pos)
+        isEvil=False
+        for evil_pos in self.evil_pos:
+            isEvil |= coord == TreasureCave.get_coord_from_pos(evil_pos)
+        return isEvil
 
     def render(self):
         render_map=self.treasure_map.copy()
         hero_coord=TreasureCave.get_coord_from_pos(self.hero_pos)
-        evil_coord=TreasureCave.get_coord_from_pos(self.evil_pos)
         if not self.is_hole(hero_coord):
             render_map[hero_coord[0]][hero_coord[1]]="X"
-        if render_map[evil_coord[0]][evil_coord[1]] == "X":
-            render_map[evil_coord[0]][evil_coord[1]]="!"
-        else:
-            render_map[evil_coord[0]][evil_coord[1]]="E"
+        for evil_pos in self.evil_pos:
+            evil_coord=TreasureCave.get_coord_from_pos(evil_pos)
+            if render_map[evil_coord[0]][evil_coord[1]] == "X":
+                render_map[evil_coord[0]][evil_coord[1]]="!"
+            else:
+                render_map[evil_coord[0]][evil_coord[1]]="E"
         print("\n".join([ ''.join(r) for r in render_map]))
 
-    def evil_move(self, hero_coord):
-        possible_actions=['w', 's', 'a', 'd']
-        evil_coord=TreasureCave.get_coord_from_pos(self.evil_pos)
-        for a in possible_actions:
+    def evil_move(self, hero_coord, evil_coord):
+        for a in self.possible_actions:
             if self.make_move(evil_coord, a) == hero_coord:
                 return a
-        return random.choice(possible_actions)
+        return random.choice(self.possible_actions)
 
     def make_move(self, coord, action):
         if action == 'w':
@@ -95,28 +99,35 @@ class TreasureCave(Game):
         elif action == 'd':
             if coord[1] < len(self.treasure_map[coord[0]])-1:
                 coord=(coord[0], coord[1]+1)
+        elif action == 'e':
+            pass
         else:
-            raise IndexError(action, "does not exist. Choose action among: a,s,d,w")
+            raise IndexError(action, "does not exist. Choose action among: ", self.possible_actions)
         return coord
 
     def step(self, action):
-        possible_actions=['w', 's', 'a', 'd']
-        action=possible_actions[action]
+        action=self.possible_actions[action]
         return self.play_step(action)
 
     def play_step(self, action):
         if self.done:
             return (self.hero_pos, self.evil_pos), self.reward, self.done, "Game over"
         hero_coord=TreasureCave.get_coord_from_pos(self.hero_pos)
-        evil_coord=TreasureCave.get_coord_from_pos(self.evil_pos)
         hero_coord=self.make_move(hero_coord, action)
-        evil_coord=self.make_move(evil_coord, self.evil_move(hero_coord))
         self.hero_pos=TreasureCave.get_pos_from_coord(hero_coord)
-        self.evil_pos=TreasureCave.get_pos_from_coord(evil_coord)
-        if self.is_hole(hero_coord) or self.is_evil(hero_coord):
+        if self.is_hole(hero_coord):
             self.done=True
             self.reward=-1
         elif self.is_treasure(hero_coord):
             self.done=True
             self.reward=1
+        else:
+            # todo update evil coord in state
+            for i,evil_pos in enumerate(self.evil_pos):
+                evil_coord=TreasureCave.get_coord_from_pos(evil_pos)
+                evil_coord=self.make_move(evil_coord, self.evil_move(hero_coord, evil_coord))
+                self.evil_pos[i]=TreasureCave.get_pos_from_coord(evil_coord)
+                if self.is_evil(hero_coord):
+                    self.done=True
+                    self.reward=-1
         return (self.hero_pos, self.evil_pos), self.reward, self.done, ""
