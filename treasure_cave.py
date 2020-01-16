@@ -30,7 +30,7 @@ class TreasureCave(Game):
             ['.','.','0','0','.','0','.'],
             ['0','.','.','0','.','.','.'],
             ['.','.','.','.','.','0','.'],
-            ['0','.','.','.','.','T','.']
+            ['0','0','.','T','.','.','.']
         ])
         self.possible_actions=['w', 's', 'a', 'd','e']
         self.verbose=verbose
@@ -79,7 +79,9 @@ class TreasureCave(Game):
                 render_map[evil_coord[0]][evil_coord[1]]='!'
             else:
                 render_map[evil_coord[0]][evil_coord[1]]='E'
+        print('*'*self.treasure_map.shape[1])
         print('\n'.join([ ''.join(r) for r in render_map]))
+        print('*'*self.treasure_map.shape[1])
 
     def evil_move(self, hero_coord, evil_coord):
         for a in self.possible_actions:
