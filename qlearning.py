@@ -82,6 +82,13 @@ class GamePlayer:
     def epison_q_action(self, state, epsilon):
         return GamePlayer.epsilon_action(state, self.env, epsilon, lambda state: random_argmax(self.Q(state, self.qtable)))
 
+    def epsilon_prefered_action(self, state, epsilon, prefered_actions):
+        if np.random.rand(1) < epsilon:
+            action = random.choice(prefered_actions(self.env, state, self))
+        else:
+            action = random_argmax(self.Q(state, self.qtable))
+        return action
+
     def epison_double_q_action(self, state, epsilon, Q1, Q2):
         def action_function(self, state):
             Q = [x + y for x, y in zip(self.Q(state, Q1), self.Q(state, Q2))]
@@ -114,6 +121,7 @@ class GamePlayer:
         self.env.close()
 
     def train(self, total_episodes, alpha, gamma, epsilon, decay_rate, logEvery=100):
+        # prefered_actions=lambda env, state, game: list(range(env.action_space.n))):
         self.start_game(False)
         # Exploration parameters
         alpha0 = alpha
@@ -128,6 +136,7 @@ class GamePlayer:
             tot_reward = 0
             while done is False:
                 action = self.epison_q_action(state, epsilon)
+                # action = self.epsilon_prefered_action(state, epsilon, prefered_actions)
                 if action >= self.env.action_space.n:
                     raise IndexError
                 # Take the action (a) and observe the outcome state(s') and reward (r)
